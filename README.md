@@ -1,7 +1,7 @@
 # DataScience_portfolio
 This is my data science portfolio.
 
-* Titanic Machine Learning Project with Python
+* Titanic Machine Learning project with Python
 * Credit Approval Machine Learning project with R
 * PCA using Numpy
 
