@@ -1,0 +1,580 @@
+---
+title: "Credit Screening Project"
+author: "Jorge Marcos Martos"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r message=FALSE}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(fastDummies)
+library(missForest)
+library(corrplot)
+library(glmnet)
+library(caret)
+library(lattice)
+library(e1071)
+library(MASS) 
+```
+
+## Data Loading and Overview.
+
+In this project we will build an automatic credit card approval predictor using machine learning techniques.
+
+For that purpose we will use the data set Credit Screening from the UCI Machine Learning Repository.
+
+All attribute names and values have been changed to meaningless symbols to protect confidentiality of the data, nonetheless we will try to get additional information on what these variables might be.
+
+```{r}
+url <- 'https://archive.ics.uci.edu/ml/machine-learning-databases/credit-screening/crx.data'
+crx <- read.csv(url, sep = ",", header = F)
+```
+
+## Data Preprocessing
+
+### Handling Missing Values
+
+After checking the data set, we could see that null values were included as '?', we need to replace these.
+
+```{r}
+crx[crx == "?"] <- NA
+
+# Let's see how many mising values we have
+sapply(crx, function(x) sum(is.na(x))); sum(sapply(crx, function(x) sum(is.na(x))))
+```
+
+We have a total of 67 null values, we will input these null values using the function *missForest()* from the *missForest* library, this function uses a random forest to impute null values using the mean in the case of numerical variables and the mode in the case of categorical variables.
+
+
+```{r}
+crx <- type.convert(crx, as.is=FALSE) # This code converts categorical variables into
+# factors, so the missForest can use it.
+
+crx.i <- missForest(as.data.frame(crx)) 
+```
+
+
+```{r}
+crx <- crx.i$ximp
+
+# Double-checking the null values have been succesfuly imputed:
+sapply(crx, function(x) sum(is.na(x)))
+```
+
+### Recodifying Variables.
+
+After looking for information about what variables are normally included regarding card approval, I decided to re-codify the variables using this blog as a reference: http://rstudio-pubs-static.s3.amazonaws.com/73039_9946de135c0a49daa7a0a9eda4a67a72.html
+
+The variables will be recodified as: "Gender", "Age", "Debt", "Married", "BankCustomer", "EducationLevel", "Ethnicity", "YearsEmployed", "PriorDefault", "Employed", "CreditScore", "DriversLicense", "Citizen", "ZipCode", "Income" y "ApprovalStatus".
+
+```{r}
+# Renaming variables
+crx <- crx %>% 
+  rename(Gender = V1,
+         Age = V2,
+         Debt =  V3,
+         Married = V4,
+         BankCustomer = V5,
+         EducationLevel = V6,
+         Ethnicity = V7,
+         YearsEmployed = V8,
+         PriorDefault = V9,
+         Employed = V10,
+         CreditScore = V11,
+         DriversLicense = V12,
+         Citizen = V13,
+         ZipCode = V14,
+         Income = V15,
+         ApprovalStatus = V16)
+```
+
+```{r}
+# Checking variables
+str(crx)
+```
+
+The ZipCode variable should be a factorial variable, let's see what categories it has
+
+```{r}
+unique(crx$ZipCode)
+```
+
+It returns 183 different values, 170 of those were there before applying the *missForest* algorithm for imputation, the other 13 resulted as the missing value imputation made by the *missForest* function, as it treated the variable as a numeric one. The function wouldn't be able to handle a categorical variable with more than 53 levels regardless.
+
+This would provide us with too many categories, hindering our analysis, so I decided to get rid of this variable.
+
+```{r}
+crx = subset(crx, select = -ZipCode)
+```
+
+Our target variable would be the variable 'approval status'', it would be better to transform it into a binary factorial variable, the negative would be the level '0', and the positive the level '1'.
+
+```{r}
+crx <- crx %>% 
+    mutate(ApprovalStatus = recode(ApprovalStatus, 
+                      "+" = "1", 
+                      "-" = "0")) 
+
+str(crx)
+```
+
+## Exploratory Data Analysis
+
+We will compare now every variable against the target variable, the target variable will have the 0 value in cases the credit hasn't been approved and 1 in case it has been granted.
+
+### Categorical Variables vs Target Variable
+
+**Gender vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = Gender, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Gender') + ggtitle('Gender vs Credito Approval')
+```
+
+Seems like the gender 'a' has a bigger proportion of approvals than the gender 'b', but the difference between both rates doesn't seem to be that significant, we will have to test the variables dependency later on.
+
+**Marital Status vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = Married, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Marital Status') + ggtitle('Marital Status vs Credit Approval')
+```
+
+There seems to be a clear difference between the different marital status and the rate of credit approval, for the marital status 'l' there seem to be 100% rate of credit approval, this might be caused by a too small sample, making it not representative, let's check it:
+
+```{r}
+crx %>% 
+  group_by(Married) %>% 
+  count()
+```
+Effectively, there are only two observations in 'l' marital status, that would explain this anomaly.
+
+**Bank Customer vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = BankCustomer, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Bank Customer') + ggtitle('Bank Customer vs Credit Approval')
+```
+
+Yes, there seems to be a correlation between different bank customer statuses and the credit approval rate, we see again an anomaly of a 100% rate of credit approval in one of the categories, let's check how many observations are within that category:
+
+```{r}
+crx %>% group_by(BankCustomer) %>% count()
+```
+
+As in the previous case, there are just two observations in that category, that would explain the anomaly.
+
+**Education Level vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = EducationLevel, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Education Level') + ggtitle('Education Level vs Credit Approval')
+```
+
+The education level also seems to affect credit approval rate, we have a high rate of credit approval in the education level 'x' and 'cc', whereas those with an education level 'ff' have a lower credit approval rate.
+
+**Ethnic Group vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = Ethnicity, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Ethnic Group') + ggtitle('Ethnic Group vs Credit Approval')
+```
+
+The ethnic group also seems to be related to the credit approval rate, people of the ethnic groups 'z' and 'h' have less possibilities to be have a credit granted compared to other ethnic groups as, for example, 'ff'.
+
+**Prior Default vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = PriorDefault, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Prior Default') + ggtitle('Prior Default vs Credit Approval')
+```
+
+There is a clear correlation between those who previously defaulted and those who didn't, we assume that the bank don't easily approve credits to people who have already defaulted, so we can recodify the two categories accordingly:
+
+```{r}
+crx$PriorDefault <- recode(crx$PriorDefault,
+                               "f" = "Yes",
+                               "t" = "No")
+```
+
+**Employed vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = Employed, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Employed') + ggtitle('Employed vs Credit Approval')
+```
+
+There seems to be a clear correlation between whether a person is employed or not and the credit approval rate, we can assume that the category 'f' are those who are unemployed and the category 't' corresponds to those who are employed, let's recodify the categories accordingly:
+
+```{r}
+crx$Employed <- recode(crx$Employed,
+                               "f" = "unemployed",
+                               "t" = "employed")
+```
+
+**Driver's License vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = DriversLicense, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Drivers License') + ggtitle('Drivers License vs Credit Approval')
+```
+
+There doesn't seem to be a clear correlation between both variables.
+
+**Citizenship vs Credit Approval**
+
+```{r}
+ggplot(data = crx, aes(x = Citizen, fill = ApprovalStatus)) +
+  geom_bar(position = "fill") +
+  labs(y = "Rate", x = 'Citizenship') + ggtitle('Citizenship vs Credit Approval')
+```
+
+There seems to be a relation between the citizenship status and the credit approval rate.
+
+### Independence Test of the Categorical Variables against the Target Variable
+
+In order to check whether there is independence between the different categorical variables and the target variable, we will check the chi-square with a 95% significance level, the following function will print the name of the variable and the resulting p-values.
+
+```{r, warning=F}
+categoricVars <- crx %>% dplyr::select(Gender, Married, BankCustomer, EducationLevel,
+                                       Ethnicity, PriorDefault, Employed, DriversLicense,
+                                       Citizen) 
+
+sapply(categoricVars, 
+       function(x) round(chisq.test(table(x, crx$ApprovalStatus))$p.value,2))
+```
+
+The variables Married, BankCustomer, EducationLevel, Ethnicity, PriorDefault, Employed are Citizen son dependent, whereas Gender and DriversLicense are independient of the target variable. We will remove Gender and DriverLicense from our model.
+
+### Numeric Variables vs Target Variable
+
+**Age vs Credit Approval**
+
+```{r}
+cdplot(crx$ApprovalStatus ~ crx$Age, main = "Age vs Credit Approval", 
+       xlab = "Age", ylab = "Conditional Density" ) 
+```
+
+The plot shows how those who are older have more chances of getting the credit approved, although when it reaches the threshold of 75 years old it seems to drastically lower the probabilities of getting a credit approved.
+
+Let's see if a boxplot could provide more information:
+
+```{r}
+ggplot(crx, aes(x= ApprovalStatus, y= Age, fill= ApprovalStatus)) +
+geom_boxplot() +
+labs(y = "Age", x = 'Credit Approval') + ggtitle('Age vs Credit Approval') +
+scale_fill_brewer(palette = "Set2")
+```
+
+We can also see a probable correlation between age and credit approval, the older ones seem to have more chances of getting it approved.
+
+**Debt vs Credit Approval**
+
+```{r}
+cdplot(crx$ApprovalStatus ~ crx$Debt, main = "Debt vs Credit Approval", 
+       xlab = "Debt", ylab = "Conditional Density" ) 
+```
+
+The plot describe a relation between the debt and the credit approval in which the more debt you have the more chances you have of getting a credit, although it seems to go lower around the 26 on the Debt axis to then go up again.
+
+```{r}
+ggplot(crx, aes(x= ApprovalStatus, y= Debt, fill= ApprovalStatus)) +
+geom_boxplot() +
+labs(y = "Debt", x = 'Credit Approval') + 
+  ggtitle('Debt vs Credit Approval') +
+scale_fill_brewer(palette = "Set2")
+```
+
+The box-plot seems to hint at the same as the previous plot.
+
+**Years Employed vs Credit Approval**
+
+```{r}
+ggplot(crx, aes(x= ApprovalStatus, y= YearsEmployed, fill= ApprovalStatus)) +
+geom_boxplot() +
+labs(y = "Years Employed", x = 'Credit Approval') + 
+  ggtitle('Years Employed vs Credit Approval') +
+scale_fill_brewer(palette = "Set2")
+```
+
+There seems to be a positive correlation between the years employed and the credit approval.
+
+**Credit Score vs Credit Approval**
+
+```{r}
+ggplot(crx, aes(x= ApprovalStatus, y= CreditScore, fill= ApprovalStatus)) +
+geom_boxplot() +
+labs(y = "Credit Score", x = 'Credit Approval') + 
+  ggtitle('Credit Score vs Credit Approval') +
+scale_fill_brewer(palette = "Set2")
+```
+
+The plot hints at a clear positive correlation between credit score and credit approval  
+
+**Income vs Credit Approval**
+
+```{r}
+# This plot contains extreme outliers, so we need to zoom it in
+
+ggplot(crx, aes(x= ApprovalStatus, y= Income, fill= ApprovalStatus)) +
+geom_boxplot() +
+labs(y = "Income", x = 'Credit Approval') + 
+  ggtitle('Income vs Credit Approval') +
+scale_fill_brewer(palette = "Set2") +
+  coord_cartesian(ylim=c(0, 2000)) #zoom
+```
+
+The graph shows what it seems to be a clear positive correlation between income and credit approval.
+
+### Correlation Matrix
+
+We'll now plot a correlation matrix in order to check whether there is colinearity between numeric variables or not.
+
+```{r}
+numericVars <- data.frame(crx$Age, crx$Debt, crx$YearsEmployed, crx$CreditScore, crx$Income)
+
+corrplot(cor(numericVars), method = "number", type="upper")
+```
+
+The biggest value is 0.4 between Years Employed and Age which makes sense, this value is not as big as to cause colinearity so we will include both variables in our model.
+
+### Normality in the Numeric Variables
+
+It's best practice to normalize the numeric variables if they are not normally distributed.
+
+Let's plot our numeric variables normality and see whether they follow a normal distribution or not.
+
+```{r}
+for (columna in 1:ncol(crx)){
+  if (class(crx[,columna]) != "factor"){
+    qqnorm(crx[,columna], 
+         main = paste("Normality Plot: ", colnames(crx[columna])))
+    qqline(crx[,columna])
+  } else {
+    next
+  }
+}
+```
+
+None of them seems to follow a normal distribution, but let's double-check it using the Shapiro test.
+
+```{r, warning=F}
+sapply(numericVars, function(x) round(shapiro.test(x)$p.value,2))
+```
+
+The p-values obtained in the Shapiro test are near 0, we reject the null hypothesis that there is normality in all cases, therefore we accept the alternative hypothesis that none of the variables has a normal distribution.
+
+### EDA conclusions:
+
+- We need to normalize all numeric variables.
+
+- There is no colinearity between numeric variables.
+
+- The categorical variables Gender and DriversLicense don't seem to influence the target variable, the rest does to different degrees.
+
+- The categories 'l' and 'gg' of the variables 'Married' and 'BankCustomer' respectively, only have two obersvations each, and they were granted credit in all cases. Thus, both variables are supposed to be binary variables, so it might be that these two categories were recorded by mistake. We should remove them from our model.
+
+## Data Preparation
+
+Before we split the data set into a train and test sets, we need to normalize our numeric variables, also, provided that we will use binomial regression model, it would be best practice to one hot encode our categorical variables.
+
+Let's first normalize the numeric variables:
+
+```{r}
+crx$Age <- scale(crx$Age)
+crx$Debt <- scale(crx$Debt)
+crx$YearsEmployed <- scale(crx$YearsEmployed)
+crx$CreditScore <- scale(crx$CreditScore)
+crx$Income <- scale(crx$Income)
+```
+
+Now, let's remove the Gender and DriversLicense variables from our model:
+
+```{r}
+crx$Gender <- NULL
+crx$DriversLicense <- NULL
+```
+
+We can proceed with one hot encoding the categorical variables creating dummy variables for each of the categories.
+
+```{r}
+df <- dummy_cols(crx, remove_selected_columns = T)
+```
+
+Our target variable is now divided into two dummy variables, we should remove them and add it again, it's also a good moment to get rid of those two categories (now dummy variables), that we considered removing before: 'married_l' and 'BankCustomer_gg'.
+
+```{r}
+df$ApprovalStatus_0 <- NULL
+df$ApprovalStatus_1 <- NULL
+df$Married_l <- NULL
+df$BankCustomer_gg <- NULL
+
+df$ApprovalStatus <- crx$ApprovalStatus
+```
+
+Now, let's use a binomial linear model to check what variables we should be using, for that purpose we will fit a binomial regression model to the data and then we will do both, a forward and a backward step-wise selection. For that we first need to fit our model to the target variable against all the variables as our last step, and fit our model to the target variable against one as our start step.
+
+```{r}
+fit1 <- glm(ApprovalStatus~., data=df, family=binomial)
+fit0 <- glm(ApprovalStatus~1, data=df, family=binomial)
+```
+
+Now that we have fitted last and first step, we will start doing step-wise selection from both directions (from first to last and from last to first), setting the parameter 'direction' to 'both', we will use the *stepAIC* function as we will take the metric Akaike Information Criterion (AIC) as our estimator, the lower the AIC it is, the better will it be for our model.
+
+```{r warning=FALSE}
+step <-stepAIC(fit0,direction="both",scope=list(upper=fit1,lower=fit0)) 
+```
+
+With an AIC=443.47, we will include these functions to our final model:
+
+```{r}
+myvars <- c("PriorDefault_No", "CreditScore", "Income", "Citizen_p", "EducationLevel_x",
+            "EducationLevel_ff", "Married_y", "EducationLevel_cc", "Employed_unemployed",
+            "Married_u", "Ethnicity_n", "EducationLevel_w", "ApprovalStatus")
+df <- df[myvars] 
+```
+
+We can proceed now to split our data between the data set with all the features X, and the target variable data set Y, we will convert them into matrices so they can be processed by the *glmnet* function.
+
+```{r}
+# X e Y
+X <- data.matrix(subset(df, select= - ApprovalStatus))
+Y <- as.double(as.matrix(df$ApprovalStatus))
+```
+
+We are ready now to split both data sets between training and test sets
+
+```{r}
+# TRAIN
+X_Train <- X[0:590, ]
+Y_Train <- Y[0:590]
+
+# TEST
+X_Test <- X[591:nrow(X), ]
+Y_Test <- Y[591:length(Y)]
+```
+
+## Logistic Regression Model:
+
+We have a binary classification problem (whether to approve credit or not), for that reason we will create a Logistic Regression model.
+
+We need to create a model able to predict whether to approve a credit or not as best as possible, but we also need to minimize the number of false positives, as false positives would make our bank losing money granting credits that it shouldn't. For that reason, we will use the *Area Under the (ROC) Curve* (AUC) as our estimator.
+
+ROC is a plot of the false positive rate (x-axis) versus the true positive rate (y-axis) for a number of different candidate threshold values between 0.0 and 1.0, so the area below this curve would be the best estimator possible when it comes to getting good predictions while minimizing false positives at the same time.
+
+For better results we will use also a regularization, whether to use either Lasso or Ridge we will use an Elastic-Net model for that.
+
+The Elastic-Net allow us to select a Ridge regularization setting the alpha parameter to 0 and a Lasso regularization setting the alpha parameter to 1. We will check both of them and we will select the one with a bigger AUC.
+
+### Ridge Regularization
+
+```{r message = FALSE}
+# We will use the glmnet as Elastic-Net, cv. stands for cross-validation
+cv.ridge <- cv.glmnet(X_Train, Y_Train, family='binomial', alpha=0, parallel=TRUE, standardize=TRUE, type.measure='auc')
+```
+
+```{r}
+plot(cv.ridge)
+```
+
+Now that we have the model, let's check the value for the biggest AUC.
+
+```{r}
+max(cv.ridge$cvm)
+```
+
+The biggest AUC value is approximately 0.926, let's see what value lambda corresponds to this value:
+
+```{r}
+match(max(cv.ridge$cvm),cv.ridge$cvm)
+```
+
+```{r}
+cv.ridge$lambda[95] == cv.ridge$lambda.min
+```
+
+```{r}
+cv.ridge$lambda.min
+```
+
+The lambda value that gives us the biggest AUC possible is 0.056
+
+### Lasso Regularization:
+
+```{r}
+# We set the parameter 'alpha' to 1 so we can use Lasso
+cv.lasso <- cv.glmnet(X_Train, Y_Train, family='binomial', alpha=1, parallel=TRUE, standardize=TRUE, type.measure='auc')
+```
+
+Let's see how AUC behaves trying different Lambda values
+
+```{r}
+plot(cv.lasso)
+```
+
+Let's calculate the optimal lambda:
+
+```{r}
+cv.lasso$lambda.min
+```
+
+Let's compare both maximum AUCs
+
+```{r}
+max(cv.lasso$cvm)
+max(cv.ridge$cvm) - max(cv.lasso$cvm)
+```
+
+Both return almost the same result, but Ridge is slightly better, so we will use this one.
+
+### Testing the model.
+
+Let's try our Logistic Regression model using Ridge regularization to see how well it predicts.
+
+```{r}
+y_pred <- as.numeric(predict.glmnet(cv.ridge$glmnet.fit, newx=X_Test, s=cv.ridge$lambda.min)>.5)
+```
+
+```{r}
+y_pred
+```
+
+Now, we create a confusion matrix so we can compare the actual outcome and our predicted outcome:
+
+```{r}
+confusionMatrix(as.factor(Y_Test), as.factor(y_pred), mode="everything")
+```
+
+We have a model with an Accuracy of 91%,  and Recall of 91.4%, F1 de 94.07% y Precision of 98.84%.
+
+```{r} 
+cTab    <- table(Y_Test, y_pred)    # Confusion Matrix
+addmargins(cTab)  
+```
+
+In the confusion matrix we just had one false positive out 100 predictions, 6 were correctly approved and 85 were correctly denied. We also had 8 false negatives.
+
+Let's check which variables have more influence in our model.
+
+```{r}
+coef(cv.ridge, s=cv.ridge$lambda.min)
+```
+
+Seems like, not having defaulted before, being of ethnicity 'n', having a citizenship status of 'p' and an education level 'x' is positively correlated with having a credit approval. Whereas having an education level 'ff' and being 'unemployed' have the biggest negative impact when getting a credit approved.
+
+
+
+
+
+
