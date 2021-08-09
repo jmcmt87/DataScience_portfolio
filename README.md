@@ -1,5 +1,6 @@
 # DataScience_portfolio
 This is my data science portfolio.
+All these are non-guided projects.
 
 * **Image classification project with TensorFlow 2 and Keras** (image_clsf_neural_network.ipynb): project where I explore ways to maximize the accuracy score with hyperparameter tuning, regularization and optimization.
 * **Titanic Machine Learning project with Python** (Titanic_top25.ipynb): this classification machine learning model made it in the top 25% of the Kaggle Titanic competition.
