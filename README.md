@@ -10,4 +10,5 @@ All these are non-guided projects.
 * **Tweeter Basic Sentiment Analysis** (Basict_sentiment_analysis.ipynb): Basic sentiment analysis using plain Python with the help of Pandas and Regex libraries. It uses the files *Sentimientos.txt* and *tweets.txt*.
 * **Basic Cluster Analysis on Crime in the US** (unsupervisedl_crime.ipynb) -SPANISH 
 * **Basic Linear Regression Problem Predicting Fuel Consumption** (cars_mpg.ipynb) -SPANISH: Linear Regression using several algorithms like XGBoost Regressor, LightGBM, and also ANN with Tensorflow 2 Keras.
+* **Image classification project with TensorFlow 2 and Keras using ANN** (image_clsf_neural_network.ipynb): project exploring ways of maximizing accuracy with hyperparameter tuning, regularization and optimization.
 
