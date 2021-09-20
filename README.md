@@ -10,4 +10,4 @@ All these are non-guided projects.
 * **Tweeter Basic Sentiment Analysis** (Basict_sentiment_analysis.ipynb): Basic sentiment analysis using plain Python with the help of Pandas and Regex libraries. It uses external data
 * **Basic Cluster Analysis on Crime in the US** (unsupervisedl_crime.ipynb) -SPANISH 
 * **Image classification project with TensorFlow 2 and Keras using ANN** (image_clsf_neural_network.ipynb): project exploring ways of maximizing accuracy with hyperparameter tuning, regularization and optimization.
-
+* **NLP project** (nlp_nltk_assignment.ipynb) creating an AI that is capable of understand restaurant orders. -SPANISH
