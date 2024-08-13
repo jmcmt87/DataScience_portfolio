@@ -3,7 +3,7 @@ This is my data science portfolio.
 
 All these are non-guided projects.
 
-* **NLP project** (nlp_nltk_assignment.ipynb) creating an AI that is capable of understand restaurant orders. -SPANISH
+* **NLP project** (nlp_pedidos.ipynb) creating an AI that is capable of understand restaurant orders. -SPANISH
 * **Basic Cluster Analysis on Crime in the US** (unsupervisedl_crime.ipynb) -SPANISH
 * **PCA using Numpy** (PCA_Numpy.ipynb): Performing PCA on the renowned iris dataset using the Numpy library.
 * **Titanic Machine Learning project with Python** (Titanic_top25.ipynb): this classification machine learning model made it in the top 25% of the Kaggle Titanic competition.
